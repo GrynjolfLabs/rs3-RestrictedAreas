@@ -4,6 +4,7 @@ local DEBUG_DRAW_NAME = "RestrictedAreasDebug"
 -- Flip this on while recording tiles, then reload. The top-left corner is the
 -- tile to paste into areas.lua: the live tile, or the source tile in an Instance.
 local DEBUG = true
+local DEBUG_IGNORE_DEPTH = false
 
 local lists = require("areas")
 
@@ -272,6 +273,8 @@ local DEBUG_RESTRICTED_COLOUR = 0xFF0000FF
 local DEBUG_SHADOW_COLOUR = 0x000000FF
 local DEBUG_AREA_COLOUR = 0xFF0000C0
 local DEBUG_WHITELIST_COLOUR = 0x00FF00C0
+-- Tiles past this are off screen, and each one is still a shape draw.
+local DEBUG_DRAW_RANGE = 30
 
 ---@param surface ui.Canvas
 ---@param x integer
@@ -353,7 +356,7 @@ local function drawTileAt(level, x, z, colour)
     ShapeList.Draw{
         shapeData = tileSheet(),
         translation = Vector3.new(position.x, y, position.z),
-        ignoreDepth = true,
+        ignoreDepth = DEBUG_IGNORE_DEPTH,
         colour = colour,
     }
 end
@@ -363,10 +366,31 @@ end
 ---@param shiftX integer
 ---@param shiftZ integer
 ---@param shiftLevel integer
-local function drawAreaVolume(entry, colour, shiftX, shiftZ, shiftLevel)
+---@param originX integer
+---@param originZ integer
+local function drawAreaVolume(entry, colour, shiftX, shiftZ, shiftLevel, originX, originZ)
     local x1, x2, z1, z2, level1, level2 = areaBounds(entry)
     if x1 == nil then
         return
+    end
+    local minX = originX - DEBUG_DRAW_RANGE
+    local maxX = originX + DEBUG_DRAW_RANGE
+    local minZ = originZ - DEBUG_DRAW_RANGE
+    local maxZ = originZ + DEBUG_DRAW_RANGE
+    if x2 < minX or x1 > maxX or z2 < minZ or z1 > maxZ then
+        return
+    end
+    if x1 < minX then
+        x1 = minX
+    end
+    if x2 > maxX then
+        x2 = maxX
+    end
+    if z1 < minZ then
+        z1 = minZ
+    end
+    if z2 > maxZ then
+        z2 = maxZ
     end
     for level = level1, level2 do
         for x = x1, x2 do
@@ -382,35 +406,41 @@ end
 ---@param shiftX integer
 ---@param shiftZ integer
 ---@param shiftLevel integer
-local function drawAreaList(list, colour, shiftX, shiftZ, shiftLevel)
+---@param originX integer
+---@param originZ integer
+local function drawAreaList(list, colour, shiftX, shiftZ, shiftLevel, originX, originZ)
     if type(list) ~= "table" then
         return
     end
     for i = 1, #list do
-        drawAreaVolume(list[i], colour, shiftX, shiftZ, shiftLevel)
+        drawAreaVolume(list[i], colour, shiftX, shiftZ, shiftLevel, originX, originZ)
     end
 end
 
 ---@param inInstance boolean
 local function drawDebugAreas(inInstance)
+    local live = readLiveTile()
+    if live == nil then
+        return
+    end
+    -- Area corners are source tiles. Inside an Instance the copy is that map
+    -- shifted onto the live grid, so distance from the source tile matches
+    -- distance from the sheet under your feet.
+    local originX, originZ = live.x, live.z
     local shiftX, shiftZ, shiftLevel = 0, 0, 0
     if inInstance then
-        local live = readLiveTile()
-        if live == nil then
-            return
-        end
         local source = playerSourceTile(live)
         if source == nil then
             return
         end
-        -- The copy is the source map shifted onto the live grid. TileMarkers
-        -- draws that live CoordGrid; the shift is the same placement.
+        originX = source.x
+        originZ = source.z
         shiftX = live.x - source.x
         shiftZ = live.z - source.z
         shiftLevel = live.level - source.level
-        drawAreaList(lists.whitelist, DEBUG_WHITELIST_COLOUR, shiftX, shiftZ, shiftLevel)
+        drawAreaList(lists.whitelist, DEBUG_WHITELIST_COLOUR, shiftX, shiftZ, shiftLevel, originX, originZ)
     end
-    drawAreaList(lists.blacklist, DEBUG_AREA_COLOUR, shiftX, shiftZ, shiftLevel)
+    drawAreaList(lists.blacklist, DEBUG_AREA_COLOUR, shiftX, shiftZ, shiftLevel, originX, originZ)
 end
 
 local function onDebugDraw()
