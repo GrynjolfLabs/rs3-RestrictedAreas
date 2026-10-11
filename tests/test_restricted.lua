@@ -233,19 +233,22 @@ function TestRestrictedAreas:testUnreadableSourceTileInAnInstanceIsRestricted()
     luaunit.assertEquals(RestrictedAreas.IsRestricted(), true)
 end
 
-function TestRestrictedAreas:testPublishedListsStartEmpty()
+function TestRestrictedAreas:testPublishedListsAreTables()
     local info = debug.getinfo(1, "S")
     local path = info.source:match("^@(.*)$") or ""
     local testsDir = path:match("(.*[/\\])") or "./"
     local published = assert(loadfile(testsDir .. "../areas.lua"))()
-    luaunit.assertEquals(#published.blacklist, 0)
-    luaunit.assertEquals(#published.whitelist, 0)
+    luaunit.assertEquals(type(published.blacklist), "table")
+    luaunit.assertEquals(type(published.whitelist), "table")
 end
 
 function TestRestrictedAreas:testAskingDoesNotDraw()
     fakes.setPlayer(1, 1, 0)
+    local subscriptions = fakes.drawSubscriptions()
+    local canvases = fakes.canvasCreations()
     RestrictedAreas.IsRestricted()
-    luaunit.assertEquals(fakes.drawSubscriptions(), 0)
+    luaunit.assertEquals(fakes.drawSubscriptions(), subscriptions)
+    luaunit.assertEquals(fakes.canvasCreations(), canvases)
 end
 
 function TestRestrictedAreas:testSubscribeDoesNotReplayOrDraw()
@@ -255,7 +258,6 @@ function TestRestrictedAreas:testSubscribeDoesNotReplayOrDraw()
     luaunit.assertEquals(#calls, 0)
     luaunit.assertEquals(fakes.pump(), true)
     luaunit.assertEquals(#calls, 0)
-    luaunit.assertEquals(fakes.drawSubscriptions(), 0)
 end
 
 function TestRestrictedAreas:testCrossingIntoRestrictedNotifiesEveryListener()

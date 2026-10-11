@@ -15,12 +15,23 @@ local logic = {
 }
 
 local drawSubscriptions = 0
+local canvasCreations = 0
+
+local draw = {
+    name = nil,
+    callback = nil,
+}
+
+local drawn = {
+    texts = {},
+}
 
 function fakes.reset()
     state.available = true
     state.tile = { x = 3200, z = 3200, level = 0 }
     state.instance = false
     state.source = nil
+    drawn.texts = {}
 end
 
 --- Overworld tile the local player is standing on. nil hides the tile.
@@ -86,9 +97,55 @@ function fakes.install()
             end,
         },
         Draw = {
-            Subscribe = function()
+            Subscribe = function(name, callback)
                 drawSubscriptions = drawSubscriptions + 1
+                draw.name = name
+                draw.callback = callback
             end,
+            Unsubscribe = function(name)
+                if draw.name == name then
+                    draw.name = nil
+                    draw.callback = nil
+                end
+            end,
+        },
+    }
+
+    _G.ui = {
+        Interfaces = {
+            GetComponent = function()
+                return {}
+            end,
+        },
+        Canvas = {
+            new = function()
+                canvasCreations = canvasCreations + 1
+                local canvas = {}
+                function canvas:SetPos() end
+                function canvas:SetSize() end
+                function canvas:Clear()
+                    drawn.texts = {}
+                end
+                function canvas:AddText(x, y, text, font, colour)
+                    drawn.texts[#drawn.texts + 1] = {
+                        x = x,
+                        y = y,
+                        text = text,
+                        font = font,
+                        colour = colour,
+                    }
+                end
+                return canvas
+            end,
+        },
+    }
+
+    _G.id = {
+        Component = {
+            TOPLEVEL_V2__GAME_AREA = 1,
+        },
+        Font = {
+            MUSEO_SANS_15PT_REGULAR = 2,
         },
     }
 
@@ -110,6 +167,23 @@ end
 
 function fakes.drawSubscriptions()
     return drawSubscriptions
+end
+
+function fakes.canvasCreations()
+    return canvasCreations
+end
+
+function fakes.drawnTexts()
+    return drawn.texts
+end
+
+--- Runs one draw when the debug overlay is subscribed. Returns whether it ran.
+function fakes.pumpDraw()
+    if draw.callback == nil then
+        return false
+    end
+    draw.callback({ timeDeltaSecs = 0 })
+    return true
 end
 
 return fakes

@@ -4,7 +4,6 @@
 		"../runescape-api-stubs/types.lua",
 		"../runescape-api-stubs/generated/"
 	],
-	"diagnostics.globals": ["RestrictedAreas", "PluginShutdown", "log"],
 	"workspace.checkThirdParty": false,
 	"workspace.ignoreDir": [".claude", ".sandcastle", "staging", "tests/luaunit.lua"],
 	"diagnostics.disable": [

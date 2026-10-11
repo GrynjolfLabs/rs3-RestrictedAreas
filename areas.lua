@@ -15,7 +15,15 @@
 
 ---@type RestrictedAreasLists
 local lists = {
-    blacklist = {},
+    blacklist = {
+        {
+            label = "Fort Forinthry - Bank Area",
+            corners = {
+                { x = 3285, z = 3562, level = 0 },
+                { x = 3275, z = 3548, level = 0 },
+            },
+        },
+    },
     whitelist = {},
 }
 

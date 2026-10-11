@@ -1,4 +1,9 @@
 local LOGIC_NAME = "RestrictedAreas"
+local DEBUG_DRAW_NAME = "RestrictedAreasDebug"
+
+-- Flip this on while recording tiles, then reload. The top-left line is one
+-- corner, ready to paste into areas.lua.
+local DEBUG = false
 
 local lists = require("areas")
 
@@ -208,10 +213,97 @@ function api.Unsubscribe(name)
     end
 end
 
+local DEBUG_TEXT_X = 8
+local DEBUG_TEXT_Y = 8
+local DEBUG_LINE_HEIGHT = 20
+
+---@type ui.Canvas|nil
+local debugCanvas = nil
+
+---@param tile CoordGrid
+---@return string
+local function cornerLine(tile)
+    return string.format(
+        "{ x = %d, z = %d, level = %d },",
+        math.floor(tile.x),
+        math.floor(tile.z),
+        math.floor(tile.level)
+    )
+end
+
+-- Canvas colours are 0xRRGGBBAA. A 6-digit value drops red and uses the old blue byte as alpha.
+local DEBUG_COLOUR = 0xFFFFFFFF
+local DEBUG_RESTRICTED_COLOUR = 0xFF0000FF
+local DEBUG_SHADOW_COLOUR = 0x000000FF
+
+---@param surface ui.Canvas
+---@param x integer
+---@param y integer
+---@param text string
+---@param font integer
+---@param colour integer
+local function drawDebugLine(surface, x, y, text, font, colour)
+    surface:AddText(x + 1, y + 1, text, font, DEBUG_SHADOW_COLOUR)
+    surface:AddText(x, y, text, font, colour)
+end
+
+---@return ui.Canvas|nil
+local function ensureDebugCanvas()
+    if debugCanvas ~= nil then
+        return debugCanvas
+    end
+    local parent = ui.Interfaces:GetComponent(id.Component.TOPLEVEL_V2__GAME_AREA)
+    if parent == nil then
+        return nil
+    end
+    local created = ui.Canvas.new(parent)
+    created:SetPos(0, 0)
+    created:SetSize(0, 0, 1.0, 1.0)
+    created.clickthrough = true
+    debugCanvas = created
+    return debugCanvas
+end
+
+local function onDebugDraw()
+    if not DEBUG then
+        if debugCanvas ~= nil then
+            debugCanvas:Clear()
+        end
+        return
+    end
+    local surface = ensureDebugCanvas()
+    if surface == nil then
+        return
+    end
+    surface:Clear()
+    local font = id.Font.MUSEO_SANS_15PT_REGULAR
+    local restricted = api.IsRestricted()
+    local colour = DEBUG_COLOUR
+    if restricted then
+        colour = DEBUG_RESTRICTED_COLOUR
+    end
+    local y = DEBUG_TEXT_Y
+    local tile = readLiveTile()
+    if tile ~= nil then
+        drawDebugLine(surface, DEBUG_TEXT_X, y, cornerLine(tile), font, colour)
+        y = y + DEBUG_LINE_HEIGHT
+    end
+    local verdict = "not restricted"
+    if restricted then
+        verdict = "restricted"
+    end
+    drawDebugLine(surface, DEBUG_TEXT_X, y, verdict, font, colour)
+end
+
+Event.Draw.Subscribe(DEBUG_DRAW_NAME, onDebugDraw)
+
 -- Disable and plugins_reload. Drop the tick so a disabled copy goes quiet.
+-- The client destroys the debug canvas itself.
 function PluginShutdown()
     listeners = {}
     stopTicking()
+    Event.Draw.Unsubscribe(DEBUG_DRAW_NAME)
+    debugCanvas = nil
 end
 
 RestrictedAreas = api
