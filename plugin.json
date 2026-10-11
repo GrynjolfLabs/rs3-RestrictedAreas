@@ -1,0 +1,7 @@
+{
+  "name": "RestrictedAreas",
+  "description": "Library to determine whether the player is in a restricted area.",
+  "version": "1.0.0",
+  "requiredPermissions": [],
+  "optionalPermissions": []
+}
