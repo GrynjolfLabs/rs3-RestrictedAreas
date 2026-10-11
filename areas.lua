@@ -24,7 +24,22 @@ local lists = {
             },
         },
     },
-    whitelist = {},
+    whitelist = {
+        {
+            label = "Death's Office Instance",
+            corners = {
+                { x = 398, z = 686, level = 0 },
+                { x = 431, z = 664, level = 0 },
+            }
+        },
+        {
+            label = "Mole Entrance",
+            corners = {
+                { x = 1749, z = 5244, level = 0 },
+                { x = 1756, z = 5241, level = 0 },
+            }
+        },
+    },
 }
 
 return lists

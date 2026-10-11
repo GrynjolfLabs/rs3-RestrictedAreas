@@ -65,14 +65,14 @@ That example covers x 3200–3210 and z 3200–3210 on levels 0, 1, and 2.
 
 ## Debug
 
-Set `local DEBUG = true` in `main.lua` and reload. The top-left of the game area shows the live tile as one corner, so it can be pasted into `areas.lua`, and whether that place is Restricted. Both lines are red while Restricted:
+Set `local DEBUG = true` in `main.lua` and reload. Each Blacklist Area is drawn on the ground in red. Inside an Instance, each Whitelist Area is drawn in green on the copy under your feet, shifted from the source tiles in `areas.lua`. The top-left of the game area also shows the tile to paste into `areas.lua`, and whether that place is Restricted. Outside an Instance that tile is the one you are standing on. Inside an Instance it is the source tile. The client reports the corner of an 8-tile block, and the corner line adds your position inside that block. A third line says `is in instance`. The text is red while Restricted:
 
 ```lua
 { x = 3200, z = 3205, level = 1 },
 restricted
 ```
 
-That is the tile the player is standing on, including inside an Instance. Set `DEBUG` back to `false` and reload when finished. While it is false, nothing is drawn.
+Set `DEBUG` back to `false` and reload when finished. While it is false, nothing is drawn.
 
 ## Tests
 

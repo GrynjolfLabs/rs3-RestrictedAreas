@@ -1,9 +1,9 @@
 local LOGIC_NAME = "RestrictedAreas"
 local DEBUG_DRAW_NAME = "RestrictedAreasDebug"
 
--- Flip this on while recording tiles, then reload. The top-left line is one
--- corner, ready to paste into areas.lua.
-local DEBUG = false
+-- Flip this on while recording tiles, then reload. The top-left corner is the
+-- tile to paste into areas.lua: the live tile, or the source tile in an Instance.
+local DEBUG = true
 
 local lists = require("areas")
 
@@ -59,17 +59,21 @@ local function cornerComplete(corner)
 end
 
 ---@param entry RestrictedAreasArea
----@param pos CoordGrid
----@return boolean
-local function areaContains(entry, pos)
+---@return integer|nil x1
+---@return integer|nil x2
+---@return integer|nil z1
+---@return integer|nil z2
+---@return integer|nil level1
+---@return integer|nil level2
+local function areaBounds(entry)
     if type(entry) ~= "table" or type(entry.corners) ~= "table" then
-        return false
+        return nil
     end
     local first = entry.corners[1]
     local second = entry.corners[2]
     -- One bad Area must not reject the rest of the list.
     if not cornerComplete(first) or not cornerComplete(second) then
-        return false
+        return nil
     end
     local x1, x2 = first.x, second.x
     if x1 > x2 then
@@ -82,6 +86,17 @@ local function areaContains(entry, pos)
     local level1, level2 = first.level, second.level
     if level1 > level2 then
         level1, level2 = level2, level1
+    end
+    return x1, x2, z1, z2, level1, level2
+end
+
+---@param entry RestrictedAreasArea
+---@param pos CoordGrid
+---@return boolean
+local function areaContains(entry, pos)
+    local x1, x2, z1, z2, level1, level2 = areaBounds(entry)
+    if x1 == nil then
+        return false
     end
     return pos.x >= x1 and pos.x <= x2
         and pos.z >= z1 and pos.z <= z2
@@ -103,9 +118,29 @@ local function inList(list, pos)
     return false
 end
 
+-- GetRegionSourceForCoordGrid returns the bottom-left of an 8-tile source
+-- block, not the tile the player is standing on. The block stays put while
+-- you walk through it, then jumps, which slides a sheet anchored on the raw
+-- value and then snaps it back.
+local SOURCE_BLOCK = 8
+
+---@param live CoordGrid
+---@return RestrictedAreasCorner|nil
+local function playerSourceTile(live)
+    local origin = World.GetRegionSourceForCoordGrid(live)
+    if not positionReadable(origin) then
+        return nil
+    end
+    return {
+        x = origin.x + live.x % SOURCE_BLOCK,
+        z = origin.z + live.z % SOURCE_BLOCK,
+        level = origin.level,
+    }
+end
+
 --- Checked tile: the live tile outside an Instance, the source tile inside one.
 --- Nil means that tile cannot be read, which is Restricted.
----@return CoordGrid|nil tile
+---@return CoordGrid|RestrictedAreasCorner|nil tile
 ---@return boolean inInstance
 local function checkedTile()
     local live = readLiveTile()
@@ -113,8 +148,8 @@ local function checkedTile()
         return nil, false
     end
     if World.IsRegion() then
-        local source = World.GetRegionSourceForCoordGrid(live)
-        if not positionReadable(source) then
+        local source = playerSourceTile(live)
+        if source == nil then
             return nil, true
         end
         return source, true
@@ -235,6 +270,8 @@ end
 local DEBUG_COLOUR = 0xFFFFFFFF
 local DEBUG_RESTRICTED_COLOUR = 0xFF0000FF
 local DEBUG_SHADOW_COLOUR = 0x000000FF
+local DEBUG_AREA_COLOUR = 0xFF0000C0
+local DEBUG_WHITELIST_COLOUR = 0x00FF00C0
 
 ---@param surface ui.Canvas
 ---@param x integer
@@ -264,6 +301,118 @@ local function ensureDebugCanvas()
     return debugCanvas
 end
 
+---@type ShapeData|nil
+local debugTileShape = nil
+
+local function tileSheet()
+    if debugTileShape ~= nil then
+        return debugTileShape
+    end
+    local half = 256
+    local shape = ShapeData.new()
+    shape.positions = {
+        Vector3.new(-half, 0, -half),
+        Vector3.new(half, 0, -half),
+        Vector3.new(half, 0, half),
+        Vector3.new(-half, 0, half),
+    }
+    shape.tris = { 0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2 }
+    debugTileShape = shape
+    return shape
+end
+
+---@param level integer
+---@param x integer
+---@param z integer
+---@param colour integer
+local function drawTileAt(level, x, z, colour)
+    -- Copy tiles in an Instance sit past the overworld 0-12799 range. The
+    -- client still builds a CoordGrid for them.
+    if level < 0 or level > 3 or x < 0 or z < 0 then
+        return
+    end
+    local grid = CoordGrid.new(level, math.floor(x / 64), math.floor(z / 64), x % 64, z % 64)
+    if grid == nil then
+        return
+    end
+    local fine = grid:ToCoordFine(true)
+    if fine == nil then
+        return
+    end
+    local position = fine.position
+    if position == nil then
+        return
+    end
+    local height, ok = World.GetGroundHeight(level, math.floor(position.x), math.floor(position.z))
+    local y = 40
+    if ok then
+        y = height + 40
+    elseif fine.y ~= nil then
+        y = fine.y + 40
+    end
+    ShapeList.Draw{
+        shapeData = tileSheet(),
+        translation = Vector3.new(position.x, y, position.z),
+        ignoreDepth = true,
+        colour = colour,
+    }
+end
+
+---@param entry RestrictedAreasArea
+---@param colour integer
+---@param shiftX integer
+---@param shiftZ integer
+---@param shiftLevel integer
+local function drawAreaVolume(entry, colour, shiftX, shiftZ, shiftLevel)
+    local x1, x2, z1, z2, level1, level2 = areaBounds(entry)
+    if x1 == nil then
+        return
+    end
+    for level = level1, level2 do
+        for x = x1, x2 do
+            for z = z1, z2 do
+                drawTileAt(level + shiftLevel, x + shiftX, z + shiftZ, colour)
+            end
+        end
+    end
+end
+
+---@param list RestrictedAreasArea[]|nil
+---@param colour integer
+---@param shiftX integer
+---@param shiftZ integer
+---@param shiftLevel integer
+local function drawAreaList(list, colour, shiftX, shiftZ, shiftLevel)
+    if type(list) ~= "table" then
+        return
+    end
+    for i = 1, #list do
+        drawAreaVolume(list[i], colour, shiftX, shiftZ, shiftLevel)
+    end
+end
+
+---@param inInstance boolean
+local function drawDebugAreas(inInstance)
+    local shiftX, shiftZ, shiftLevel = 0, 0, 0
+    if inInstance then
+        local live = readLiveTile()
+        if live == nil then
+            return
+        end
+        local source = playerSourceTile(live)
+        if source == nil then
+            return
+        end
+        -- The copy is the source map shifted onto the live grid. TileMarkers
+        -- draws that live CoordGrid; the shift is the same placement.
+        shiftX = live.x - source.x
+        shiftZ = live.z - source.z
+        shiftLevel = live.level - source.level
+        drawAreaList(lists.whitelist, DEBUG_WHITELIST_COLOUR, shiftX, shiftZ, shiftLevel)
+    end
+    drawAreaList(lists.blacklist, DEBUG_AREA_COLOUR, shiftX, shiftZ, shiftLevel)
+end
+
 local function onDebugDraw()
     if not DEBUG then
         if debugCanvas ~= nil then
@@ -271,6 +420,8 @@ local function onDebugDraw()
         end
         return
     end
+    local tile, inInstance = checkedTile()
+    drawDebugAreas(inInstance)
     local surface = ensureDebugCanvas()
     if surface == nil then
         return
@@ -283,7 +434,6 @@ local function onDebugDraw()
         colour = DEBUG_RESTRICTED_COLOUR
     end
     local y = DEBUG_TEXT_Y
-    local tile = readLiveTile()
     if tile ~= nil then
         drawDebugLine(surface, DEBUG_TEXT_X, y, cornerLine(tile), font, colour)
         y = y + DEBUG_LINE_HEIGHT
@@ -293,6 +443,10 @@ local function onDebugDraw()
         verdict = "restricted"
     end
     drawDebugLine(surface, DEBUG_TEXT_X, y, verdict, font, colour)
+    if inInstance then
+        y = y + DEBUG_LINE_HEIGHT
+        drawDebugLine(surface, DEBUG_TEXT_X, y, "is in instance", font, colour)
+    end
 end
 
 Event.Draw.Subscribe(DEBUG_DRAW_NAME, onDebugDraw)
