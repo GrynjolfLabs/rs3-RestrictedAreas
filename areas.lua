@@ -51,6 +51,20 @@ local lists = {
                 { x = 2999, z = 4371, level = 2 },
             },
         },
+        {
+            label = "Rex Matriarchs",
+            corners = {
+                { x = 3986, z = 9823, level = 0 },
+                { x = 4020, z = 9759, level = 0 },
+            },
+        },
+        {
+            label = "Osseus",
+            corners = {
+                { x = 4043, z = 9800, level = 0 },
+                { x = 4062, z = 9783, level = 0 },
+            },
+        },
     },
     whitelist = {
         -- {
@@ -78,7 +92,7 @@ local lists = {
             label = "Player-Owned Slayer Dungeon",
             corners = {
                 { x = 1861, z = 6714, level = 0 },
-                { x = 1915, z = 6658, level = 0 },
+                { x = 1915, z = 6659, level = 0 },
             }
         },
     },
