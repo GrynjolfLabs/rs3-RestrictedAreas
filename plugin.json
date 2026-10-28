@@ -1,7 +1,5 @@
 {
   "name": "RestrictedAreas",
-  "description": "Library to determine whether the player is in a restricted area.",
   "version": "1.0.1",
-  "requiredPermissions": [],
-  "optionalPermissions": []
+  "contactEmailAddress": "rs3plugins@grynjolf.dev"
 }
