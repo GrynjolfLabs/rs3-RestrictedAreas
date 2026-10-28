@@ -328,6 +328,32 @@ function TestRestrictedAreas:testUnsubscribeOfAnUnknownNameDoesNothing()
     luaunit.assertEquals(calls[1].value, true)
 end
 
+function TestRestrictedAreas:testACallbackCannotAddOrRepeatListenersForThisChange()
+    lists.blacklist = { area("Yard", 10, 10, 0, 12, 12, 0) }
+    fakes.setPlayer(1, 1, 0)
+    local calls = 0
+    local late = {}
+    RestrictedAreas.Subscribe("first", function()
+        calls = calls + 1
+        RestrictedAreas.Subscribe("late", function()
+            late[#late + 1] = true
+        end)
+        RestrictedAreas.Subscribe("first", function()
+            calls = calls + 100
+        end)
+    end)
+    self.names[#self.names + 1] = "first"
+    self.names[#self.names + 1] = "late"
+    fakes.setPlayer(11, 11, 0)
+    fakes.pump()
+    luaunit.assertEquals(calls, 1)
+    luaunit.assertEquals(#late, 0)
+    fakes.setPlayer(1, 1, 0)
+    fakes.pump()
+    luaunit.assertEquals(calls, 101)
+    luaunit.assertEquals(#late, 1)
+end
+
 function TestRestrictedAreas:testOneListenerErrorDoesNotSilenceTheOthers()
     lists.blacklist = { area("Yard", 10, 10, 0, 12, 12, 0) }
     fakes.setPlayer(1, 1, 0)

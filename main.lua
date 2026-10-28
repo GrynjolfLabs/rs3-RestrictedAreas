@@ -14,11 +14,10 @@ local lists = require("areas")
 ---@field Unsubscribe fun(name: string)
 local api = {}
 
----@class RestrictedAreasListener
----@field name string
----@field callback fun(restricted: boolean)
-
----@type RestrictedAreasListener[]
+-- Keyed by the name Subscribe was given. A second Subscribe for that name
+-- replaces the callback. pairs order is not the call order; notify snapshots
+-- the callbacks first so a listener cannot change who runs for this change.
+---@type table<string, fun(restricted: boolean)>
 local listeners = {}
 
 -- Nil only while nobody is subscribed. Remembering it across that gap would
@@ -173,17 +172,6 @@ function api.IsRestricted()
     return false
 end
 
----@param name string
----@return integer|nil
-local function findListener(name)
-    for i = 1, #listeners do
-        if listeners[i].name == name then
-            return i
-        end
-    end
-    return nil
-end
-
 local function stopTicking()
     Event.Logic.Unsubscribe(LOGIC_NAME)
     baseline = nil
@@ -194,13 +182,12 @@ local function notify(restricted)
     -- Snapshot so a callback that subscribes, replaces, or unsubscribes cannot
     -- skip or duplicate the listeners that were current for this change.
     local batch = {}
-    for i = 1, #listeners do
-        batch[i] = listeners[i]
+    for name, callback in pairs(listeners) do
+        batch[#batch + 1] = { name = name, callback = callback }
     end
     for i = 1, #batch do
         local item = batch[i]
-        local index = findListener(item.name)
-        if index ~= nil and listeners[index].callback == item.callback then
+        if listeners[item.name] == item.callback then
             local ok, err = pcall(item.callback, restricted)
             if not ok then
                 log("RestrictedAreas listener failed: " .. tostring(err))
@@ -222,29 +209,24 @@ end
 ---@param name string
 ---@param callback fun(restricted: boolean)
 function api.Subscribe(name, callback)
-    local index = findListener(name)
-    if index ~= nil then
-        listeners[index].callback = callback
-        return
-    end
-    if #listeners == 0 then
+    local replacing = listeners[name] ~= nil
+    if not replacing and next(listeners) == nil then
         -- Sample before the listener is recorded so a failure here leaves
         -- nobody subscribed and the tick unarmed. The sample is not delivered:
         -- a listener reads IsRestricted() for the current value.
         baseline = api.IsRestricted()
         Event.Logic.Subscribe(LOGIC_NAME, onLogic)
     end
-    listeners[#listeners + 1] = { name = name, callback = callback }
+    listeners[name] = callback
 end
 
 ---@param name string
 function api.Unsubscribe(name)
-    local index = findListener(name)
-    if index == nil then
+    if listeners[name] == nil then
         return
     end
-    table.remove(listeners, index)
-    if #listeners == 0 then
+    listeners[name] = nil
+    if next(listeners) == nil then
         stopTicking()
     end
 end
