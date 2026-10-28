@@ -3,7 +3,7 @@ local DEBUG_DRAW_NAME = "RestrictedAreasDebug"
 
 -- Flip this on while recording tiles, then reload. The top-left corner is the
 -- tile to paste into areas.lua: the live tile, or the source tile in an Instance.
-local DEBUG = true
+local DEBUG = false
 local DEBUG_IGNORE_DEPTH = false
 
 local lists = require("areas")
