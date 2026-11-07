@@ -15,8 +15,8 @@
     map; this script stages the folder names and does not invent numeric ids.
 
     With -Modio: RestrictedAreas files only, no dependency folders, zip entries at the
-    archive root (main.lua, plugin.json, …). The same plugin.json is used; this
-    plugin has no dependency ids to rewrite. Default filename is
+    archive root (main.lua, plugin.json, …). plugin.modio.json is staged as
+    plugin.json. Default filename is
     RestrictedAreas-<version>-modio.zip so it does not collide with the dev zip.
 
 .PARAMETER Output
@@ -28,7 +28,7 @@
     Minify staged RestrictedAreas Lua via scripts/minify.lua instead of naive comment stripping.
 
 .PARAMETER Modio
-    Produce a mod.io zip: RestrictedAreas-only, flat layout, same plugin.json.
+    Produce a mod.io zip: RestrictedAreas-only, flat layout, plugin.modio.json as plugin.json.
 
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1
@@ -104,7 +104,8 @@ function Remove-InlineLuaComment {
                 if ($ch -eq '\' -and ($i + 1) -lt $len) {
                     $i++
                     [void]$sb.Append($Line[$i])
-                } elseif ($ch -eq $quote) {
+                }
+                elseif ($ch -eq $quote) {
                     break
                 }
                 $i++
@@ -154,39 +155,6 @@ function Remove-InlineLuaComment {
     }
 
     return $sb.ToString().TrimEnd()
-}
-
-function Remove-NaiveLuaComments {
-    param([string]$Text)
-
-    $normalized = $Text -replace "`r`n", "`n" -replace "`r", "`n"
-    $out = New-Object System.Collections.Generic.List[string]
-    $inBlock = $false
-
-    foreach ($line in ($normalized -split "`n", -1)) {
-        if ($inBlock) {
-            if ($line -match '\]\]') { $inBlock = $false }
-            continue
-        }
-
-        $trimmed = $line.TrimStart()
-        if ($trimmed.StartsWith('--')) {
-            if ($trimmed.StartsWith('--[[') -and $trimmed -notmatch '\]\]') {
-                $inBlock = $true
-            }
-            continue
-        }
-
-        $stripped = Remove-InlineLuaComment $line
-        if ($stripped.Length -gt 0) {
-            $out.Add($stripped.TrimEnd("`r"))
-        }
-    }
-
-    if ($out.Count -eq 0) {
-        return ""
-    }
-    return ($out -join "`n") + "`n"
 }
 
 function Invoke-MinifyLua {
@@ -255,9 +223,8 @@ function Copy-BundledFile {
         }
 
         $text = [System.IO.File]::ReadAllText($Src)
-        $stripped = Remove-NaiveLuaComments $text
         $utf8 = New-Object System.Text.UTF8Encoding $false
-        [System.IO.File]::WriteAllText($Dst, $stripped, $utf8)
+        [System.IO.File]::WriteAllText($Dst, $text, $utf8)
         return
     }
 
@@ -284,6 +251,14 @@ function Stage-Plugin {
 
     foreach ($rel in $files) {
         $src = Join-Path $srcDir $rel
+        # mod.io zip uses plugin.modio.json as the on-disk plugin.json
+        if ($Flat -and ($rel -eq 'plugin.json')) {
+            $modioManifest = Join-Path $srcDir 'plugin.modio.json'
+            if (-not (Test-Path -LiteralPath $modioManifest -PathType Leaf)) {
+                throw "Missing plugin.modio.json at $modioManifest"
+            }
+            $src = $modioManifest
+        }
         $dstRel = if ($Flat) { $rel } else { Join-Path $Name $rel }
         $dst = Join-Path $StageRoot $dstRel
         Copy-BundledFile -Src $src -Dst $dst -RelativePath $rel -Minify:$Minify
@@ -292,9 +267,10 @@ function Stage-Plugin {
     return $files.Count
 }
 
-$manifestPath = Join-Path $pluginDir 'plugin.json'
+$manifestName = if ($Modio) { 'plugin.modio.json' } else { 'plugin.json' }
+$manifestPath = Join-Path $pluginDir $manifestName
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-    throw "Missing plugin.json at $manifestPath"
+    throw "Missing $manifestName at $manifestPath"
 }
 
 # Folder names from requiredDependencies (identifier -> folder). Numeric hub ids are skipped.

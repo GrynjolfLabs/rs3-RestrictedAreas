@@ -1,12 +1,14 @@
 # RestrictedAreas
 
-Headless library that answers whether the local player is Restricted.
+Library that tells whether the local player is in a Restricted Area.
 
 Declare it in `plugin.json`. The client then injects the `RestrictedAreas` global.
 
 ```json
-"requiredDependencies": {
-  "RestrictedAreas": "RestrictedAreas"
+{
+  "requiredDependencies": {
+    "RestrictedAreas": "RestrictedAreas"
+  }
 }
 ```
 
@@ -45,7 +47,7 @@ Blacklist wins when a tile is in both lists. A Whitelist Area on the overworld d
 
 ## Lists
 
-Jagex changes the answer by shipping a new version of this plugin. Edit `areas.lua`.
+The restricted areas are defined in `areas.lua`.
 
 An Area is an editor label plus two corners. The label is not an identity and is never shown; two Areas may share one. Each corner names `x`, `z`, and `level`. Corner order does not matter. Both corner tiles are included, and every plane from the lower level through the upper level is included on that same x/z rectangle. A corner missing `x`, `z`, or `level` is skipped. The rest of the list still applies.
 
@@ -78,6 +80,18 @@ Set `DEBUG` back to `false` and reload when finished. While it is false, nothing
 
 From this folder:
 
-```
+```shell
 lua tests/run.lua
 ```
+
+## Contributing
+
+### LLM/AI Usage Policy
+
+When contributing to RestrictedAreas we permit the use of AI tools to assist in writing code. However, all contributions must be reviewed and approved by a human maintainer to ensure quality and adherence to project standards.
+
+**DO NOT**
+
+- Let LLMs generate your documentation for you.
+- Submit Pull Requests generated solely by LLMs without human review.
+- Have an LLM generate your Pull Request body.
