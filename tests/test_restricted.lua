@@ -21,6 +21,29 @@ function TestRestrictedAreas:setUp()
     self.names = {}
 end
 
+function TestRestrictedAreas:pressSetting(label, ticked)
+    local check = fakes.checkByLabel(label)
+    luaunit.assertNotNil(check)
+    check.hooks[ui.Hook.ONBUTTONPRESSED](check, ticked, 0)
+end
+
+function TestRestrictedAreas:enableDebug()
+    fakes.presentSettings({ component = {} })
+    self:pressSetting("Debug", 1)
+end
+
+function TestRestrictedAreas:debugLines()
+    local lines = {}
+    local drawn = fakes.drawnTexts()
+    for i = 1, #drawn do
+        local text = drawn[i].text
+        if lines[#lines] ~= text then
+            lines[#lines + 1] = text
+        end
+    end
+    return lines
+end
+
 function TestRestrictedAreas:watch(name)
     local calls = {}
     local function callback(...)
@@ -37,6 +60,16 @@ function TestRestrictedAreas:tearDown()
     end
     lists.blacklist = {}
     lists.whitelist = {}
+    -- A debug test that stops the plugin and fails before reload leaves the
+    -- draw hook gone. The next test needs the loaded plugin.
+    if not fakes.isDrawing() then
+        package.loaded["main"] = nil
+        require("main")
+    end
+    fakes.presentSettings({ component = {} })
+    self:pressSetting("Debug", 0)
+    self:pressSetting("Ignore depth", 0)
+    self:pressSetting("Pretend instance", 0)
 end
 
 function TestRestrictedAreas:testOverworldOutsideEveryBlacklistIsNotRestricted()
@@ -417,6 +450,245 @@ function TestRestrictedAreas:testEnteringARestrictedInstanceWhileRestrictedIsNot
     fakes.pump()
     luaunit.assertEquals(RestrictedAreas.IsRestricted(), true)
     luaunit.assertEquals(#calls, 0)
+end
+
+function TestRestrictedAreas:testDebugSettingStartsOffAndIsNotSaved()
+    -- PersistentDB answers true for every read. Debug must ignore that.
+    luaunit.assertEquals(fakes.persistentTouches(), 0)
+    luaunit.assertEquals(fakes.presentSettings(nil), true)
+    luaunit.assertEquals(fakes.presentSettings({}), true)
+    luaunit.assertEquals(fakes.presentSettings({ component = {} }), true)
+    local check = fakes.checkByLabel("Debug")
+    local depth = fakes.checkByLabel("Ignore depth")
+    local pretend = fakes.checkByLabel("Pretend instance")
+    luaunit.assertEquals(check.value, false)
+    luaunit.assertEquals(depth.label, "Ignore depth")
+    luaunit.assertEquals(depth.value, false)
+    luaunit.assertEquals(pretend.value, false)
+    luaunit.assertEquals(depth.y > check.y, true)
+    luaunit.assertEquals(pretend.y > depth.y, true)
+    luaunit.assertEquals(check.stylesheetID, id.StyleSheet.CHECKBOX_DEFAULT)
+    luaunit.assertEquals(depth.stylesheetID, id.StyleSheet.CHECKBOX_DEFAULT)
+    luaunit.assertEquals(fakes.persistentTouches(), 0)
+
+    self:pressSetting("Debug", 1)
+    fakes.pumpDraw()
+    luaunit.assertTrue(#fakes.drawnTexts() > 0)
+    luaunit.assertEquals(fakes.persistentTouches(), 0)
+
+    fakes.presentSettings({ component = {} })
+    luaunit.assertEquals(fakes.checkByLabel("Debug").value, true)
+    luaunit.assertEquals(fakes.checkByLabel("Ignore depth").value, false)
+    luaunit.assertEquals(fakes.checkByLabel("Pretend instance").value, false)
+
+    self:pressSetting("Debug", 0)
+    fakes.pumpDraw()
+    luaunit.assertEquals(#fakes.drawnTexts(), 0)
+
+    self:pressSetting("Debug", true)
+    fakes.pumpDraw()
+    luaunit.assertTrue(#fakes.drawnTexts() > 0)
+
+    PluginShutdown()
+    package.loaded["main"] = nil
+    require("main")
+    fakes.presentSettings({ component = {} })
+    luaunit.assertEquals(fakes.checkByLabel("Debug").value, false)
+    luaunit.assertEquals(fakes.checkByLabel("Ignore depth").value, false)
+    luaunit.assertEquals(fakes.checkByLabel("Pretend instance").value, false)
+    fakes.clearDrawn()
+    luaunit.assertEquals(fakes.pumpDraw(), true)
+    luaunit.assertEquals(#fakes.drawnTexts(), 0)
+    luaunit.assertEquals(fakes.persistentTouches(), 0)
+end
+
+function TestRestrictedAreas:testIgnoreDepthStartsOffAndReachesTheSheet()
+    lists.blacklist = { area("Yard", 3200, 3200, 0, 3200, 3200, 0) }
+    fakes.setPlayer(3200, 3200, 0)
+    self:enableDebug()
+    fakes.pumpDraw()
+    local shapes = fakes.drawnShapes()
+    luaunit.assertEquals(#shapes > 0, true)
+    luaunit.assertEquals(shapes[1].ignoreDepth, false)
+
+    self:pressSetting("Ignore depth", 1)
+    luaunit.assertEquals(fakes.persistentTouches(), 0)
+    fakes.pumpDraw()
+    luaunit.assertEquals(shapes[#shapes].ignoreDepth, true)
+
+    PluginShutdown()
+    package.loaded["main"] = nil
+    require("main")
+    fakes.presentSettings({ component = {} })
+    luaunit.assertEquals(fakes.checkByLabel("Ignore depth").value, false)
+    luaunit.assertEquals(fakes.persistentTouches(), 0)
+end
+
+function TestRestrictedAreas:testPretendInstanceDrawsTheTemplateAsAnInstance()
+    lists.whitelist = { area("Iaia", 3200, 3200, 0, 3200, 3200, 0) }
+    fakes.setPlayer(3200, 3200, 0)
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(#fakes.drawnShapes(), 0)
+    luaunit.assertEquals(RestrictedAreas.IsRestricted(), false)
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 3200, z = 3200, level = 0 },",
+        "not restricted",
+        "whitelist",
+    })
+
+    fakes.presentSettings({ component = {} })
+    self:pressSetting("Pretend instance", 1)
+    luaunit.assertEquals(fakes.persistentTouches(), 0)
+    fakes.pumpDraw()
+    luaunit.assertEquals(#fakes.drawnShapes() > 0, true)
+    luaunit.assertEquals(RestrictedAreas.IsRestricted(), false)
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 3200, z = 3200, level = 0 },",
+        "not restricted",
+        "whitelist",
+        "is in instance",
+    })
+end
+
+function TestRestrictedAreas:testPretendInstanceRestrictsATemplateTileOutsideTheWhitelist()
+    fakes.setPlayer(3200, 3200, 0)
+    self:enableDebug()
+    fakes.presentSettings({ component = {} })
+    self:pressSetting("Pretend instance", 1)
+    fakes.pumpDraw()
+    luaunit.assertEquals(RestrictedAreas.IsRestricted(), false)
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 3200, z = 3200, level = 0 },",
+        "restricted",
+        "is in instance",
+    })
+end
+
+function TestRestrictedAreas:testPretendInstanceStillNamesABlacklistOnTheTemplate()
+    lists.blacklist = { area("Yard", 3200, 3200, 0, 3200, 3200, 0) }
+    fakes.setPlayer(3200, 3200, 0)
+    self:enableDebug()
+    fakes.presentSettings({ component = {} })
+    self:pressSetting("Pretend instance", 1)
+    fakes.pumpDraw()
+    luaunit.assertEquals(RestrictedAreas.IsRestricted(), true)
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 3200, z = 3200, level = 0 },",
+        "restricted",
+        "blacklist",
+        "is in instance",
+    })
+end
+
+function TestRestrictedAreas:testPretendInstanceLeavesARealInstanceOnItsSourceTile()
+    lists.whitelist = { area("Safe", 100, 100, 0, 110, 110, 0) }
+    fakes.setPlayer(0, 0, 0)
+    fakes.setInstance(true, { x = 105, z = 105, level = 0 })
+    self:enableDebug()
+    fakes.presentSettings({ component = {} })
+    self:pressSetting("Pretend instance", 1)
+    fakes.pumpDraw()
+    luaunit.assertEquals(RestrictedAreas.IsRestricted(), false)
+    luaunit.assertEquals(self:debugLines()[1], "{ x = 105, z = 105, level = 0 },")
+end
+
+function TestRestrictedAreas:testDebugTextNamesABlacklist()
+    lists.blacklist = { area("Yard", 3200, 3200, 0, 3200, 3200, 0) }
+    fakes.setPlayer(3200, 3200, 0)
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 3200, z = 3200, level = 0 },",
+        "restricted",
+        "blacklist",
+    })
+end
+
+function TestRestrictedAreas:testDebugTextNamesAWhitelistOnTheOverworld()
+    lists.whitelist = { area("Safe", 3200, 3200, 0, 3200, 3200, 0) }
+    fakes.setPlayer(3200, 3200, 0)
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 3200, z = 3200, level = 0 },",
+        "not restricted",
+        "whitelist",
+    })
+end
+
+function TestRestrictedAreas:testDebugTextHasNoCauseOutsideEveryArea()
+    fakes.setPlayer(3200, 3200, 0)
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 3200, z = 3200, level = 0 },",
+        "not restricted",
+    })
+end
+
+function TestRestrictedAreas:testDebugTextNamesAnInstanceOutsideTheWhitelist()
+    fakes.setPlayer(0, 0, 0)
+    fakes.setInstance(true, { x = 50, z = 50, level = 0 })
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 50, z = 50, level = 0 },",
+        "restricted",
+        "is in instance",
+    })
+end
+
+function TestRestrictedAreas:testDebugTextNamesAWhitelistInsideAnInstance()
+    lists.whitelist = { area("Safe", 100, 100, 0, 110, 110, 0) }
+    fakes.setPlayer(0, 0, 0)
+    fakes.setInstance(true, { x = 105, z = 105, level = 0 })
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 105, z = 105, level = 0 },",
+        "not restricted",
+        "whitelist",
+        "is in instance",
+    })
+end
+
+function TestRestrictedAreas:testDebugTextNamesBlacklistAndWhitelistInsideAnInstance()
+    lists.blacklist = { area("Denied", 100, 100, 0, 110, 110, 0) }
+    lists.whitelist = { area("Also", 100, 100, 0, 110, 110, 0) }
+    fakes.setPlayer(0, 0, 0)
+    fakes.setInstance(true, { x = 105, z = 105, level = 0 })
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(self:debugLines(), {
+        "{ x = 105, z = 105, level = 0 },",
+        "restricted",
+        "blacklist",
+        "whitelist",
+        "is in instance",
+    })
+end
+
+function TestRestrictedAreas:testDebugTextNamesAnUnreadableTile()
+    fakes.setPlayerUnavailable()
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(self:debugLines(), {
+        "restricted",
+        "tile unreadable",
+    })
+end
+
+function TestRestrictedAreas:testDebugTextNamesAnUnreadableSourceTile()
+    fakes.setPlayer(4, 4, 0)
+    fakes.setInstance(true, nil)
+    self:enableDebug()
+    fakes.pumpDraw()
+    luaunit.assertEquals(self:debugLines(), {
+        "restricted",
+        "tile unreadable",
+        "is in instance",
+    })
 end
 
 function TestRestrictedAreas:testLeavingARestrictedInstanceOntoABlacklistIsNotAChange()

@@ -1,10 +1,12 @@
 local LOGIC_NAME = "RestrictedAreas"
 local DEBUG_DRAW_NAME = "RestrictedAreasDebug"
+local SETTINGS_EVENT = "RestrictedAreas.settings"
 
--- Flip this on while recording tiles, then reload. The top-left corner is the
+-- These start off on every load and are not saved. The top-left corner is the
 -- tile to paste into areas.lua: the live tile, or the source tile in an Instance.
 local DEBUG = false
 local DEBUG_IGNORE_DEPTH = false
+local DEBUG_PRETEND_INSTANCE = false
 
 local lists = require("areas")
 
@@ -157,9 +159,10 @@ local function checkedTile()
     return live, false
 end
 
+---@param pos CoordGrid|RestrictedAreasCorner|nil
+---@param inInstance boolean
 ---@return boolean
-function api.IsRestricted()
-    local pos, inInstance = checkedTile()
+local function restrictedAt(pos, inInstance)
     if pos == nil then
         return true
     end
@@ -170,6 +173,12 @@ function api.IsRestricted()
         return true
     end
     return false
+end
+
+---@return boolean
+function api.IsRestricted()
+    local pos, inInstance = checkedTile()
+    return restrictedAt(pos, inInstance)
 end
 
 local function stopTicking()
@@ -411,9 +420,13 @@ local function drawDebugAreas(inInstance)
     local originX, originZ = live.x, live.z
     local shiftX, shiftZ, shiftLevel = 0, 0, 0
     if inInstance then
-        local source = playerSourceTile(live)
-        if source == nil then
-            return
+        -- Pretend instance is the template underfoot, so there is no copy to shift.
+        local source = live
+        if World.IsRegion() then
+            source = playerSourceTile(live)
+            if source == nil then
+                return
+            end
         end
         originX = source.x
         originZ = source.z
@@ -433,6 +446,11 @@ local function onDebugDraw()
         return
     end
     local tile, inInstance = checkedTile()
+    -- The public answer stays real. Only this overlay treats the template as an Instance.
+    local pretending = DEBUG_PRETEND_INSTANCE and not inInstance
+    if pretending then
+        inInstance = true
+    end
     drawDebugAreas(inInstance)
     local surface = ensureDebugCanvas()
     if surface == nil then
@@ -441,35 +459,102 @@ local function onDebugDraw()
     surface:Clear()
     local font = id.Font.MUSEO_SANS_15PT_REGULAR
     local restricted = api.IsRestricted()
+    if pretending then
+        restricted = restrictedAt(tile, true)
+    end
     local colour = DEBUG_COLOUR
     if restricted then
         colour = DEBUG_RESTRICTED_COLOUR
     end
     local y = DEBUG_TEXT_Y
+    local function paint(text)
+        drawDebugLine(surface, DEBUG_TEXT_X, y, text, font, colour)
+        y = y + DEBUG_LINE_HEIGHT
+    end
     if tile ~= nil then
-        drawDebugLine(surface, DEBUG_TEXT_X, y, cornerLine(tile), font, colour)
-        y = y + DEBUG_LINE_HEIGHT
+        paint(cornerLine(tile))
     end
-    local verdict = "not restricted"
     if restricted then
-        verdict = "restricted"
+        paint("restricted")
+    else
+        paint("not restricted")
     end
-    drawDebugLine(surface, DEBUG_TEXT_X, y, verdict, font, colour)
+    if tile == nil then
+        paint("tile unreadable")
+    end
+    if tile ~= nil and inList(lists.blacklist, tile) then
+        paint("blacklist")
+    end
+    if tile ~= nil and inList(lists.whitelist, tile) then
+        paint("whitelist")
+    end
     if inInstance then
-        y = y + DEBUG_LINE_HEIGHT
-        drawDebugLine(surface, DEBUG_TEXT_X, y, "is in instance", font, colour)
+        paint("is in instance")
     end
+end
+
+-- 0 is truthy in Lua. The check hook reports the new state as 1 or true.
+local function debugTicked(ticked)
+    return ticked == true or ticked == 1
+end
+
+local SETTINGS_INSET = 12
+local SETTINGS_ROW_H = 30
+
+---@param parent ui.ComponentCollection
+---@param y integer
+---@param label string
+---@param value boolean
+---@param hookId string
+---@param apply fun(on: boolean)
+---@return integer
+local function addSetting(parent, y, label, value, hookId, apply)
+    local check = ui.Check.new(parent)
+    check:SetPos(SETTINGS_INSET, y)
+    check:SetSize(-SETTINGS_INSET * 2, SETTINGS_ROW_H, 1)
+    check.stylesheetID = id.StyleSheet.CHECKBOX_DEFAULT
+    check.label = label
+    check.value = value
+    check:Subscribe(ui.Hook.ONBUTTONPRESSED, hookId, function(_, ticked)
+        apply(debugTicked(ticked))
+    end)
+    return y + SETTINGS_ROW_H + 4
+end
+
+---@param parent ui.ComponentCollection
+local function fillSettings(parent)
+    local y = SETTINGS_INSET
+    y = addSetting(parent, y, "Debug", DEBUG, "RestrictedAreas.debug", function(on)
+        DEBUG = on
+    end)
+    y = addSetting(parent, y, "Ignore depth", DEBUG_IGNORE_DEPTH, "RestrictedAreas.ignore_depth", function(on)
+        DEBUG_IGNORE_DEPTH = on
+    end)
+    addSetting(parent, y, "Pretend instance", DEBUG_PRETEND_INSTANCE, "RestrictedAreas.pretend_instance", function(on)
+        DEBUG_PRETEND_INSTANCE = on
+    end)
 end
 
 Event.Draw.Subscribe(DEBUG_DRAW_NAME, onDebugDraw)
 
+Event.SettingsLayerReady.Subscribe(SETTINGS_EVENT, function(event)
+    if event == nil or event.component == nil then
+        return
+    end
+    fillSettings(event.component)
+end)
+
 -- Disable and plugins_reload. Drop the tick so a disabled copy goes quiet.
--- The client destroys the debug canvas itself.
+-- The client destroys the debug canvas and the settings page itself.
 function PluginShutdown()
     listeners = {}
     stopTicking()
     Event.Draw.Unsubscribe(DEBUG_DRAW_NAME)
+    Event.SettingsLayerReady.Unsubscribe(SETTINGS_EVENT)
     debugCanvas = nil
+    DEBUG = false
+    DEBUG_IGNORE_DEPTH = false
+    DEBUG_PRETEND_INSTANCE = false
 end
 
 RestrictedAreas = api

@@ -22,6 +22,15 @@ local draw = {
     callback = nil,
 }
 
+local settings = {
+    name = nil,
+    callback = nil,
+}
+
+local settingChecks = {}
+local persistentTouches = 0
+local drawnShapes = {}
+
 local drawn = {
     texts = {},
 }
@@ -32,6 +41,8 @@ function fakes.reset()
     state.instance = false
     state.source = nil
     drawn.texts = {}
+    drawnShapes = {}
+    persistentTouches = 0
 end
 
 --- Overworld tile the local player is standing on. nil hides the tile.
@@ -81,6 +92,37 @@ function fakes.install()
             end
             return state.source
         end,
+        GetGroundHeight = function()
+            return 0, true
+        end,
+    }
+
+    _G.CoordGrid = {
+        new = function()
+            return {
+                ToCoordFine = function()
+                    return { position = { x = 512, y = 0, z = 512 }, y = 0 }
+                end,
+            }
+        end,
+    }
+
+    _G.Vector3 = {
+        new = function(x, y, z)
+            return { x = x, y = y, z = z }
+        end,
+    }
+
+    _G.ShapeData = {
+        new = function()
+            return {}
+        end,
+    }
+
+    _G.ShapeList = {
+        Draw = function(args)
+            drawnShapes[#drawnShapes + 1] = args
+        end,
     }
 
     _G.Event = {
@@ -109,13 +151,66 @@ function fakes.install()
                 end
             end,
         },
+        SettingsLayerReady = {
+            Subscribe = function(name, callback)
+                settings.name = name
+                settings.callback = callback
+            end,
+            Unsubscribe = function(name)
+                if settings.name == name then
+                    settings.name = nil
+                    settings.callback = nil
+                end
+            end,
+        },
     }
+
+    -- Reads return true. A call means the plugin tried to load a saved tick.
+    persistentTouches = 0
+    _G.PersistentDB = setmetatable({}, {
+        __index = function()
+            persistentTouches = persistentTouches + 1
+            return function()
+                persistentTouches = persistentTouches + 1
+                return true
+            end
+        end,
+    })
 
     _G.ui = {
         Interfaces = {
             GetComponent = function()
                 return {}
             end,
+        },
+        Check = {
+            new = function(parent)
+                local check = {
+                    parent = parent,
+                    hooks = {},
+                    value = false,
+                    label = "",
+                }
+                function check:SetPos(x, y, xAnchor)
+                    self.x = x
+                    self.y = y
+                    self.xAnchor = xAnchor
+                end
+                function check:SetSize(w, h, widthAnchor)
+                    self.w = w
+                    self.h = h
+                    self.widthAnchor = widthAnchor
+                end
+                function check:Subscribe(hook, id, fn)
+                    self.hooks[hook] = fn
+                    self.hookId = id
+                end
+                settingChecks[#settingChecks + 1] = check
+                return check
+            end,
+        },
+        Hook = {
+            ONBUTTONPRESSED = "ONBUTTONPRESSED",
         },
         Canvas = {
             new = function()
@@ -146,6 +241,9 @@ function fakes.install()
         },
         Font = {
             MUSEO_SANS_15PT_REGULAR = 2,
+        },
+        StyleSheet = {
+            CHECKBOX_DEFAULT = 3,
         },
     }
 
@@ -183,6 +281,42 @@ function fakes.pumpDraw()
         return false
     end
     draw.callback({ timeDeltaSecs = 0 })
+    return true
+end
+
+function fakes.isDrawing()
+    return draw.callback ~= nil
+end
+
+function fakes.clearDrawn()
+    drawn.texts = {}
+end
+
+function fakes.persistentTouches()
+    return persistentTouches
+end
+
+function fakes.checkByLabel(label)
+    for i = #settingChecks, 1, -1 do
+        if settingChecks[i].label == label then
+            return settingChecks[i]
+        end
+    end
+    return nil
+end
+
+function fakes.drawnShapes()
+    return drawnShapes
+end
+
+function fakes.presentSettings(event)
+    if settings.callback == nil then
+        return false
+    end
+    if type(event) == "table" and event.component ~= nil then
+        settingChecks = {}
+    end
+    settings.callback(event)
     return true
 end
 

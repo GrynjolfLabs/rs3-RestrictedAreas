@@ -259,7 +259,7 @@ local lists = {
         {
             label = "Dream of Iaia",
             corners = {
-                { x = 2116, z = 1540, level = 0 },
+                { x = 2116, z = 1529, level = 0 },
                 { x = 2178, z = 1603, level = 0 },
             },
         },
